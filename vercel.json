@@ -1,7 +1,7 @@
 {
     "functions": {
-      "api/threads.js": {
-        "maxDuration": 10
+      "app/api/threads/route.js": {
+        "maxDuration": 30
       }
     }
   }
