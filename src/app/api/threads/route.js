@@ -3,8 +3,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 // Threads API configuration
-const RAPIDAPI_KEY = '47d3008859msh5fe50d70249f660p1db0b3jsnf3ce9b66332c';
-const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'threads-api4.p.rapidapi.com';
 
 // Specific currencies we want to track
 const CURRENCIES = [
@@ -13,20 +13,20 @@ const CURRENCIES = [
   { name: "Dogecoin", symbol: "DOGE" }
 ];
 
-// Function to check if cached data exists and is recent (less than 1 hour old)
+// Function to check if cached data exists and is recent (less than 1 month old)
 async function getCachedData() {
   try {
-    const projectRoot = process.cwd();
-    const filePath = path.join(projectRoot, 'data', 'threads-posts.json');
+    // Use environment-specific data path for Vercel
+    const dataPath = process.env.VERCEL ? '/tmp/threads-posts.json' : path.join(process.cwd(), 'data', 'threads-posts.json');
 
     try {
-      const stats = await fs.stat(filePath);
-      const fileData = await fs.readFile(filePath, 'utf8');
+      const stats = await fs.stat(dataPath);
+      const fileData = await fs.readFile(dataPath, 'utf8');
       const data = JSON.parse(fileData);
 
       // Check if file is less than 1 month old
       const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      if (stats.mtime > oneMonthAgo) {
+      if (new Date(stats.mtime) > oneMonthAgo) {
         console.log('Using cached data');
         return data;
       }
@@ -77,62 +77,71 @@ function processThreadData(edges) {
     .flat();
 }
 
-// Function to fetch posts from Threads API
-async function fetchThreadsPosts(query) {
-  try {
-    console.log(`Fetching posts for query: ${query}`);
-    const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
-      params: {
-        query: query
-      },
-      headers: {
-        'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': RAPIDAPI_HOST
+// Function to fetch posts from Threads API with improved error handling
+async function fetchThreadsPosts(query, retries = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`Fetching posts for query: ${query}, Attempt: ${attempt}`);
+      
+      // Ensure API key exists
+      if (!RAPIDAPI_KEY) {
+        throw new Error('RapidAPI Key is not configured');
       }
-    });
 
-    const searchResults = response.data?.data?.searchResults;
-    if (!searchResults) {
-      console.log('No search results found');
+      const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
+        params: { query },
+        headers: {
+          'X-RapidAPI-Key': RAPIDAPI_KEY,
+          'X-RapidAPI-Host': RAPIDAPI_HOST
+        },
+        timeout: 10000 // 10 seconds timeout
+      });
+
+      const searchResults = response.data?.data?.searchResults;
+      if (!searchResults) {
+        console.log('No search results found');
+        return {
+          posts: [],
+          pagination: {
+            has_next_page: false,
+            end_cursor: null
+          }
+        };
+      }
+
+      const processedPosts = processThreadData(searchResults.edges || []);
+      console.log(`Processed ${processedPosts.length} posts for ${query}`);
+
       return {
-        posts: [],
+        posts: processedPosts,
         pagination: {
-          has_next_page: false,
-          end_cursor: null
+          has_next_page: searchResults.page_info?.has_next_page || false,
+          end_cursor: searchResults.page_info?.end_cursor || null
         }
       };
+    } catch (error) {
+      console.error(`Error fetching posts for ${query} (Attempt ${attempt}):`, 
+        error.response?.data || error.message);
+      
+      // If it's the last retry, throw the error
+      if (attempt === retries) {
+        throw error;
+      }
+
+      // Wait between retries
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
-
-    const processedPosts = processThreadData(searchResults.edges || []);
-    console.log(`Processed ${processedPosts.length} posts for ${query}`);
-
-    return {
-      posts: processedPosts,
-      pagination: {
-        has_next_page: searchResults.page_info?.has_next_page || false,
-        end_cursor: searchResults.page_info?.end_cursor || null
-      }
-    };
-  } catch (error) {
-    console.error(`Error fetching posts for ${query}:`, error.response?.data || error.message);
-    return {
-      posts: [],
-      pagination: {
-        has_next_page: false,
-        end_cursor: null
-      }
-    };
   }
 }
 
 // Function to save data to JSON file
 async function saveToJsonFile(data) {
   try {
-    // Get the project root directory
-    const projectRoot = process.cwd();
+    // Use environment-specific data path for Vercel
+    const dataPath = process.env.VERCEL ? '/tmp/threads-posts.json' : path.join(process.cwd(), 'data', 'threads-posts.json');
 
-    // Create data directory if it doesn't exist
-    const dataDir = path.join(projectRoot, 'data');
+    // Ensure directory exists
+    const dataDir = path.dirname(dataPath);
     try {
       await fs.mkdir(dataDir, { recursive: true });
     } catch (err) {
@@ -140,19 +149,19 @@ async function saveToJsonFile(data) {
     }
 
     // Save to JSON file
-    const filePath = path.join(dataDir, 'threads-posts.json');
     await fs.writeFile(
-      filePath,
+      dataPath,
       JSON.stringify(data, null, 2)
     );
-    console.log(`Saved results to ${filePath}`);
-    return filePath;
+    console.log(`Saved results to ${dataPath}`);
+    return dataPath;
   } catch (error) {
     console.error('Error saving to JSON file:', error);
     throw error;
   }
 }
 
+// Modify the main GET function to handle errors more robustly
 export async function GET() {
   try {
     console.log('Starting fetch-threads-posts request...');
@@ -172,30 +181,30 @@ export async function GET() {
     let lastPagination = null;
 
     console.log(`Processing ${CURRENCIES.length} currencies...`);
-    for (const currency of CURRENCIES) {
-      // Search for both currency name and symbol
-      const nameResults = await fetchThreadsPosts(currency.name);
-      const symbolResults = await fetchThreadsPosts(currency.symbol);
+    
+    // Use Promise.all with limited concurrency
+    for (let i = 0; i < CURRENCIES.length; i += 2) {
+      const currenciesToProcess = CURRENCIES.slice(i, i + 2);
+      const currencyResults = await Promise.all(
+        currenciesToProcess.map(async (currency) => {
+          // Search for both currency name and symbol
+          const nameResults = await fetchThreadsPosts(currency.name);
+          const symbolResults = await fetchThreadsPosts(currency.symbol);
 
-      // Combine and deduplicate posts based on post ID
-      const combinedPosts = [...nameResults.posts, ...symbolResults.posts];
-      const uniquePosts = Array.from(new Map(combinedPosts.map(post => [post.id, post])).values());
+          // Combine and deduplicate posts based on post ID
+          const combinedPosts = [...nameResults.posts, ...symbolResults.posts];
+          const uniquePosts = Array.from(new Map(combinedPosts.map(post => [post.id, post])).values());
 
-      if (uniquePosts.length > 0) {
-        allPosts.push({
-          currency: currency.name,
-          symbol: currency.symbol,
-          posts: uniquePosts,
-          total_posts: uniquePosts.length
-        });
-        console.log(`Added ${uniquePosts.length} unique posts for ${currency.name}`);
-      }
+          return {
+            currency: currency.name,
+            symbol: currency.symbol,
+            posts: uniquePosts,
+            total_posts: uniquePosts.length
+          };
+        })
+      );
 
-      // Store pagination info from the last request
-      lastPagination = symbolResults.pagination;
-
-      // Add delay between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      allPosts.push(...currencyResults.filter(result => result.total_posts > 0));
     }
 
     // Save the new data to cache
@@ -215,10 +224,12 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Error in fetch-threads-posts route:', error);
+    
+    // Return a more informative error response
     return Response.json({
       success: false,
-      error: error.message,
-      details: error.response?.data
+      error: error.message || 'An unexpected error occurred',
+      details: error.response?.data || null
     }, { status: 500 });
   }
 }

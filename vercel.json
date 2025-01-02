@@ -1,0 +1,7 @@
+{
+    "functions": {
+      "api/threads.js": {
+        "maxDuration": 10
+      }
+    }
+  }
