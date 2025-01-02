@@ -3,8 +3,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 // Threads API configuration
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'threads-api4.p.rapidapi.com';
+
+const RAPIDAPI_KEY = '47d3008859msh5fe50d70249f660p1db0b3jsnf3ce9b66332c';
+const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
 
 // Specific currencies we want to track
 const CURRENCIES = [
