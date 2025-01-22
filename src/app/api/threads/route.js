@@ -4,7 +4,7 @@ import path from 'path';
 
 // Threads API configuration
 
-const RAPIDAPI_KEY = 'd5a4b2dc02msha3e0817cfb62687p13280cjsn98b0df4fb8a8';
+const RAPIDAPI_KEY = 'e24b9156abmshdf9b08bb4abe7b9p11227fjsnffd05261ebe2';
 const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
 
 // Specific currencies we want to track
