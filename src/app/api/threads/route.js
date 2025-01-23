@@ -2,48 +2,52 @@ import axios from 'axios';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-// Threads API configuration
-
 const RAPIDAPI_KEY = 'e24b9156abmshdf9b08bb4abe7b9p11227fjsnffd05261ebe2';
 const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
 
-// Specific currencies we want to track
 const CURRENCIES = [
   { name: "Bitcoin", symbol: "BTC" },
   { name: "XRP", symbol: "XRP" },
   { name: "Dogecoin", symbol: "DOGE" }
 ];
 
-// Function to check if cached data exists and is recent (less than 1 month old)
-async function getCachedData() {
+async function getDataFilePath() {
+  return process.env.VERCEL 
+    ? '/tmp/threads-posts.json' 
+    : path.join(process.cwd(), 'data', 'threads-posts.json');
+}
+
+async function checkApiLimit() {
   try {
-    // Use environment-specific data path for Vercel
-    const dataPath = process.env.VERCEL ? '/tmp/threads-posts.json' : path.join(process.cwd(), 'data', 'threads-posts.json');
-
-    try {
-      const stats = await fs.stat(dataPath);
-      const fileData = await fs.readFile(dataPath, 'utf8');
-      const data = JSON.parse(fileData);
-
-      // Check if file is less than 1 month old
-      const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      if (new Date(stats.mtime) > oneMonthAgo) {
-        console.log('Using cached data');
-        return data;
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.error('Error reading cache:', error);
-      }
-    }
-    return null;
+    const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
+      params: { query: 'test' },
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': RAPIDAPI_HOST
+      },
+      timeout: 5000
+    });
+    return { hasLimit: false };
   } catch (error) {
-    console.error('Error checking cache:', error);
+    if (error.response?.status === 429) {
+      return { hasLimit: true };
+    }
+    console.error('Error checking API limit:', error);
+    return { hasLimit: true, error: error.message };
+  }
+}
+
+async function getExistingData() {
+  try {
+    const dataPath = await getDataFilePath();
+    const fileData = await fs.readFile(dataPath, 'utf8');
+    return JSON.parse(fileData);
+  } catch (error) {
+    console.error('Error reading existing data:', error);
     return null;
   }
 }
 
-// Function to process thread items from the API response
 function processThreadData(edges) {
   if (!edges || !Array.isArray(edges)) return [];
 
@@ -74,17 +78,15 @@ function processThreadData(edges) {
 
     return processedItems;
   })
-    .filter(items => items !== null && items.length > 0)
-    .flat();
+  .filter(items => items !== null && items.length > 0)
+  .flat();
 }
 
-// Function to fetch posts from Threads API with improved error handling
 async function fetchThreadsPosts(query, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       console.log(`Fetching posts for query: ${query}, Attempt: ${attempt}`);
       
-      // Ensure API key exists
       if (!RAPIDAPI_KEY) {
         throw new Error('RapidAPI Key is not configured');
       }
@@ -95,7 +97,7 @@ async function fetchThreadsPosts(query, retries = 2) {
           'X-RapidAPI-Key': RAPIDAPI_KEY,
           'X-RapidAPI-Host': RAPIDAPI_HOST
         },
-        timeout: 10000 // 10 seconds timeout
+        timeout: 10000
       });
 
       const searchResults = response.data?.data?.searchResults;
@@ -124,36 +126,26 @@ async function fetchThreadsPosts(query, retries = 2) {
       console.error(`Error fetching posts for ${query} (Attempt ${attempt}):`, 
         error.response?.data || error.message);
       
-      // If it's the last retry, throw the error
       if (attempt === retries) {
         throw error;
       }
-
-      // Wait between retries
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 }
 
-// Function to save data to JSON file
 async function saveToJsonFile(data) {
   try {
-    // Use environment-specific data path for Vercel
-    const dataPath = process.env.VERCEL ? '/tmp/threads-posts.json' : path.join(process.cwd(), 'data', 'threads-posts.json');
-
-    // Ensure directory exists
+    const dataPath = await getDataFilePath();
     const dataDir = path.dirname(dataPath);
+    
     try {
       await fs.mkdir(dataDir, { recursive: true });
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
     }
 
-    // Save to JSON file
-    await fs.writeFile(
-      dataPath,
-      JSON.stringify(data, null, 2)
-    );
+    await fs.writeFile(dataPath, JSON.stringify(data, null, 2));
     console.log(`Saved results to ${dataPath}`);
     return dataPath;
   } catch (error) {
@@ -162,39 +154,43 @@ async function saveToJsonFile(data) {
   }
 }
 
-// Modify the main GET function to handle errors more robustly
 export async function GET() {
   try {
     console.log('Starting fetch-threads-posts request...');
 
-    // First, try to get cached data
-    const cachedData = await getCachedData();
-    if (cachedData) {
-      return Response.json({
-        success: true,
-        message: 'Posts retrieved from cache',
-        data: cachedData
-      });
+    const { hasLimit, error: limitError } = await checkApiLimit();
+    
+    if (hasLimit) {
+      console.log('API limit reached or error, using existing data');
+      const existingData = await getExistingData();
+      if (existingData) {
+        return Response.json({
+          success: true,
+          message: 'Posts retrieved from existing data',
+          data: existingData,
+          source: 'existing',
+          limitError: limitError || 'API limit reached'
+        });
+      }
     }
 
-    // If no cache or cache is old, fetch new data
+    // If no limit, proceed with new data fetch
     const allPosts = [];
     let lastPagination = null;
 
     console.log(`Processing ${CURRENCIES.length} currencies...`);
     
-    // Use Promise.all with limited concurrency
     for (let i = 0; i < CURRENCIES.length; i += 2) {
       const currenciesToProcess = CURRENCIES.slice(i, i + 2);
       const currencyResults = await Promise.all(
         currenciesToProcess.map(async (currency) => {
-          // Search for both currency name and symbol
           const nameResults = await fetchThreadsPosts(currency.name);
           const symbolResults = await fetchThreadsPosts(currency.symbol);
 
-          // Combine and deduplicate posts based on post ID
           const combinedPosts = [...nameResults.posts, ...symbolResults.posts];
-          const uniquePosts = Array.from(new Map(combinedPosts.map(post => [post.id, post])).values());
+          const uniquePosts = Array.from(new Map(
+            combinedPosts.map(post => [post.id, post])
+          ).values());
 
           return {
             currency: currency.name,
@@ -208,7 +204,6 @@ export async function GET() {
       allPosts.push(...currencyResults.filter(result => result.total_posts > 0));
     }
 
-    // Save the new data to cache
     const savedFilePath = await saveToJsonFile({
       posts: allPosts,
       pagination: lastPagination,
@@ -217,20 +212,33 @@ export async function GET() {
 
     return Response.json({
       success: true,
-      message: 'Posts fetched and cached successfully',
+      message: 'Posts fetched and saved successfully',
       postsCount: allPosts.reduce((acc, curr) => acc + curr.total_posts, 0),
       filePath: savedFilePath,
       data: allPosts,
-      pagination: lastPagination
+      pagination: lastPagination,
+      source: 'api'
     });
   } catch (error) {
     console.error('Error in fetch-threads-posts route:', error);
     
-    // Return a more informative error response
-    return Response.json({
-      success: false,
-      error: error.message || 'An unexpected error occurred',
-      details: error.response?.data || null
-    }, { status: 500 });
+    try {
+      const existingData = await getExistingData();
+      if (existingData) {
+        return Response.json({
+          success: true,
+          message: 'Error occurred, using existing data',
+          data: existingData,
+          source: 'existing',
+          error: error.message || 'An unexpected error occurred'
+        });
+      }
+    } catch (fallbackError) {
+      return Response.json({
+        success: false,
+        error: error.message || 'An unexpected error occurred',
+        details: error.response?.data || null
+      }, { status: 500 });
+    }
   }
 }
