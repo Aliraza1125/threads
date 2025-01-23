@@ -1,3 +1,4 @@
+// app/page.js
 'use client';
 import { useState, useEffect } from 'react';
 import ThreadPost from '@/components/ThreadPost';
@@ -12,12 +13,12 @@ export default function ThreadsFeed() {
       try {
         const response = await fetch('/api/threads');
         const data = await response.json();
-        console.log('API Response:', data);
+        console.log('API Response:', data); // Debug log
 
-        if (data.success) {
-          setPostsData(data.data);
+        if (data.success && data.data && data.data.posts) {
+          setPostsData(data.data.posts);
         } else {
-          setError(data.error || 'No data available');
+          setError('No data available');
         }
       } catch (error) {
         console.error('Error:', error);
@@ -51,16 +52,20 @@ export default function ThreadsFeed() {
       <h1 className="text-3xl font-bold mb-8">Threads Crypto Posts</h1>
       <div className="space-y-8">
         {postsData.map((currencyData, index) => (
-          <div key={index} className="space-y-6">
+          <div key={currencyData.currency} className="space-y-6">
             <h2 className="text-xl font-semibold text-gray-800 flex items-center">
               <span>{currencyData.currency}</span>
-              <span className="ml-2 text-gray-600">${currencyData.symbol}</span>
-              <span className="ml-2 text-sm text-gray-500">
-                ({currencyData.total_posts} posts)
-              </span>
+              {currencyData.symbol && (
+                <span className="ml-2 text-gray-600">${currencyData.symbol}</span>
+              )}
+              {currencyData.total_posts && (
+                <span className="ml-2 text-sm text-gray-500">
+                  ({currencyData.total_posts} posts)
+                </span>
+              )}
             </h2>
             <div className="space-y-4">
-              {Array.isArray(currencyData.posts) && currencyData.posts.map((post) => (
+              {currencyData.posts.map((post) => (
                 <ThreadPost key={post.id} post={post} />
               ))}
             </div>
