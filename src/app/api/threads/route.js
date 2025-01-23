@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 const RAPIDAPI_KEY = 'e24b9156abmshdf9b08bb4abe7b9p11227fjsnffd05261ebe2';
 const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
@@ -11,9 +13,16 @@ const CURRENCIES = [
 
 async function getDefaultData() {
   try {
-    const response = await fetch('/data/threads-posts.json');
-    const data = await response.json();
-    return data;
+    // For Vercel deployment
+    if (process.env.VERCEL) {
+      const filePath = path.join(process.cwd(), 'public', 'data', 'threads-posts.json');
+      const fileContent = await fs.readFile(filePath, 'utf8');
+      return JSON.parse(fileContent);
+    }
+    // For local development
+    const filePath = path.join(process.cwd(), 'data', 'threads-posts.json');
+    const fileContent = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(fileContent);
   } catch (error) {
     console.error('Error reading default data:', error);
     return null;
@@ -32,9 +41,7 @@ async function checkApiLimit() {
     });
     return { hasLimit: false };
   } catch (error) {
-    if (error.response?.status === 429) {
-      return { hasLimit: true };
-    }
+    console.error('API limit check error:', error.message);
     return { hasLimit: true, error: error.message };
   }
 }
@@ -125,6 +132,29 @@ async function fetchThreadsPosts(query, retries = 2) {
   }
 }
 
+async function saveToJsonFile(data) {
+  try {
+    // Don't attempt to save in Vercel environment
+    if (process.env.VERCEL) return null;
+
+    const dataPath = path.join(process.cwd(), 'data', 'threads-posts.json');
+    const dataDir = path.dirname(dataPath);
+    
+    try {
+      await fs.mkdir(dataDir, { recursive: true });
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+
+    await fs.writeFile(dataPath, JSON.stringify(data, null, 2));
+    console.log(`Saved results to ${dataPath}`);
+    return dataPath;
+  } catch (error) {
+    console.error('Error saving to JSON file:', error);
+    return null;
+  }
+}
+
 export async function GET() {
   try {
     console.log('Starting fetch-threads-posts request...');
@@ -143,6 +173,11 @@ export async function GET() {
           limitError: limitError || 'API limit reached'
         });
       }
+      
+      return Response.json({
+        success: false,
+        error: 'API limit reached and unable to read default data',
+      }, { status: 500 });
     }
 
     const allPosts = [];
@@ -174,10 +209,18 @@ export async function GET() {
       allPosts.push(...currencyResults.filter(result => result.total_posts > 0));
     }
 
+    // Only try to save if we're not in Vercel
+    const savedFilePath = await saveToJsonFile({
+      posts: allPosts,
+      pagination: lastPagination,
+      timestamp: new Date().toISOString()
+    });
+
     return Response.json({
       success: true,
       message: 'Posts fetched successfully',
       postsCount: allPosts.reduce((acc, curr) => acc + curr.total_posts, 0),
+      filePath: savedFilePath,
       data: allPosts,
       pagination: lastPagination,
       source: 'api'
@@ -197,11 +240,21 @@ export async function GET() {
           error: error.message || 'An unexpected error occurred'
         });
       }
+
+      return Response.json({
+        success: false,
+        error: 'Unable to fetch data and read default data',
+        details: error.message
+      }, { status: 500 });
+
     } catch (fallbackError) {
       return Response.json({
         success: false,
-        error: error.message || 'An unexpected error occurred',
-        details: error.response?.data || null
+        error: 'All data sources failed',
+        details: {
+          originalError: error.message,
+          fallbackError: fallbackError.message
+        }
       }, { status: 500 });
     }
   }
