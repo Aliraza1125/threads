@@ -2,7 +2,7 @@ import axios from 'axios';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-const RAPIDAPI_KEY = 'e24b9156abmshdf9b08bb4abe7b9p11227fjsnffd05261ebe2';
+const RAPIDAPI_KEY = '3394260387mshed24fbfcc5c9fbap17c4d4jsn34c097b15731';
 const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
 
 const CURRENCIES = [

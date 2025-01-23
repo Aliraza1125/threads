@@ -15,8 +15,8 @@ export default function ThreadsFeed() {
         const data = await response.json();
         console.log('API Response:', data); // Debug log
 
-        if (data.success && data.data && data.data.posts) {
-          setPostsData(data.data.posts);
+        if (data.success && data.data) {
+          setPostsData(data.data);
         } else {
           setError('No data available');
         }
