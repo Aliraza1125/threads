@@ -1,6 +1,4 @@
 import axios from 'axios';
-import { promises as fs } from 'fs';
-import path from 'path';
 
 const RAPIDAPI_KEY = 'e24b9156abmshdf9b08bb4abe7b9p11227fjsnffd05261ebe2';
 const RAPIDAPI_HOST = 'threads-api4.p.rapidapi.com';
@@ -11,10 +9,15 @@ const CURRENCIES = [
   { name: "Dogecoin", symbol: "DOGE" }
 ];
 
-async function getDataFilePath() {
-  return process.env.VERCEL 
-    ? '/tmp/threads-posts.json' 
-    : path.join(process.cwd(), 'data', 'threads-posts.json');
+async function getDefaultData() {
+  try {
+    const response = await fetch('/data/threads-posts.json');
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error reading default data:', error);
+    return null;
+  }
 }
 
 async function checkApiLimit() {
@@ -32,19 +35,7 @@ async function checkApiLimit() {
     if (error.response?.status === 429) {
       return { hasLimit: true };
     }
-    console.error('Error checking API limit:', error);
     return { hasLimit: true, error: error.message };
-  }
-}
-
-async function getExistingData() {
-  try {
-    const dataPath = await getDataFilePath();
-    const fileData = await fs.readFile(dataPath, 'utf8');
-    return JSON.parse(fileData);
-  } catch (error) {
-    console.error('Error reading existing data:', error);
-    return null;
   }
 }
 
@@ -134,26 +125,6 @@ async function fetchThreadsPosts(query, retries = 2) {
   }
 }
 
-async function saveToJsonFile(data) {
-  try {
-    const dataPath = await getDataFilePath();
-    const dataDir = path.dirname(dataPath);
-    
-    try {
-      await fs.mkdir(dataDir, { recursive: true });
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-    }
-
-    await fs.writeFile(dataPath, JSON.stringify(data, null, 2));
-    console.log(`Saved results to ${dataPath}`);
-    return dataPath;
-  } catch (error) {
-    console.error('Error saving to JSON file:', error);
-    throw error;
-  }
-}
-
 export async function GET() {
   try {
     console.log('Starting fetch-threads-posts request...');
@@ -161,20 +132,19 @@ export async function GET() {
     const { hasLimit, error: limitError } = await checkApiLimit();
     
     if (hasLimit) {
-      console.log('API limit reached or error, using existing data');
-      const existingData = await getExistingData();
-      if (existingData) {
+      console.log('API limit reached or error, using default data');
+      const defaultData = await getDefaultData();
+      if (defaultData) {
         return Response.json({
           success: true,
-          message: 'Posts retrieved from existing data',
-          data: existingData,
-          source: 'existing',
+          message: 'Posts retrieved from default data',
+          data: defaultData,
+          source: 'default',
           limitError: limitError || 'API limit reached'
         });
       }
     }
 
-    // If no limit, proceed with new data fetch
     const allPosts = [];
     let lastPagination = null;
 
@@ -204,32 +174,26 @@ export async function GET() {
       allPosts.push(...currencyResults.filter(result => result.total_posts > 0));
     }
 
-    const savedFilePath = await saveToJsonFile({
-      posts: allPosts,
-      pagination: lastPagination,
-      timestamp: new Date().toISOString()
-    });
-
     return Response.json({
       success: true,
-      message: 'Posts fetched and saved successfully',
+      message: 'Posts fetched successfully',
       postsCount: allPosts.reduce((acc, curr) => acc + curr.total_posts, 0),
-      filePath: savedFilePath,
       data: allPosts,
       pagination: lastPagination,
       source: 'api'
     });
+
   } catch (error) {
     console.error('Error in fetch-threads-posts route:', error);
     
     try {
-      const existingData = await getExistingData();
-      if (existingData) {
+      const defaultData = await getDefaultData();
+      if (defaultData) {
         return Response.json({
           success: true,
-          message: 'Error occurred, using existing data',
-          data: existingData,
-          source: 'existing',
+          message: 'Error occurred, using default data',
+          data: defaultData,
+          source: 'default',
           error: error.message || 'An unexpected error occurred'
         });
       }
