@@ -135,7 +135,7 @@ const ProfileImage = ({ user, isDark }) => {
       <img
         src={proxiedImageUrl}
         alt={user.username}
-        className={`w-10 h-10 rounded-full hover:opacity-90 transition-opacity object-cover ${
+        className={`w-10 h-10 shadow-md border rounded-full hover:opacity-90 transition-opacity object-cover ${
           isLoading ? 'opacity-0' : 'opacity-100'
         } ${isDark ? 'border-gray-800' : 'border-white'} border-2`}
         onError={() => {
