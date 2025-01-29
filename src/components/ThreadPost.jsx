@@ -1,4 +1,5 @@
-import { useState } from 'react';
+'use client'
+import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { 
   Heart, 
@@ -9,10 +10,12 @@ import {
 } from 'lucide-react';
 
 // Utility function for proxying image URLs
-const getProxiedImageUrl = (originalUrl) => {
+const getProxiedImageUrl = (originalUrl, isVideo = false) => {
   if (!originalUrl) return '';
   const encodedUrl = encodeURIComponent(originalUrl);
-  return `/api/proxy/image?url=${encodedUrl}`;
+  return isVideo 
+    ? `/api/proxy/video?url=${encodedUrl}`
+    : `/api/proxy/image?url=${encodedUrl}`;
 };
 
 // Currency configuration
@@ -73,15 +76,62 @@ const MediaContent = ({ post, isDark }) => {
 
   const renderVideo = (videoVersion) => {
     if (!videoVersion?.url) return null;
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const videoRef = useRef(null);
+  
+    useEffect(() => {
+      if (videoRef.current) {
+        videoRef.current.addEventListener('loadeddata', () => {
+          setIsLoading(false);
+        });
+        
+        // Add playback error handling
+        videoRef.current.addEventListener('error', (e) => {
+          console.error('Video playback error:', e);
+          setIsLoading(false);
+        });
+      }
+    }, []);
+  
     return (
-      <video
-        controls
-        className="w-full rounded-lg"
-        poster={post.image_versions?.[0]?.url ? getProxiedImageUrl(post.image_versions[0].url) : undefined}
-      >
-        <source src={getProxiedImageUrl(videoVersion.url)} type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
+      <div className="relative">
+        {isLoading && (
+          <div className={`absolute inset-0 flex items-center justify-center ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        )}
+        <video
+          ref={videoRef}
+          playsInline
+          controls
+          controlsList="nodownload"
+          preload="metadata"
+          className={`w-full rounded-lg ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+          poster={post.image_versions?.[0]?.url ? getProxiedImageUrl(post.image_versions[0].url) : undefined}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+        >
+          {/* Try different video formats */}
+          <source
+  src={getProxiedImageUrl(videoVersion.url, true)}
+  type="video/mp4; codecs=avc1.42E01E,mp4a.40.2"
+/>
+          {/* Fallback source */}
+          <source
+            src={getProxiedImageUrl(videoVersion.url)}
+            type="video/quicktime"
+          />
+          {/* M3U8 for HLS streaming */}
+          {videoVersion.url.endsWith('.m3u8') && (
+            <source
+              src={getProxiedImageUrl(videoVersion.url)}
+              type="application/x-mpegURL"
+            />
+          )}
+          Your browser does not support the video tag.
+        </video>
+      </div>
     );
   };
 
