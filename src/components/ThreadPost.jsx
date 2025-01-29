@@ -1,5 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react';
+import { useInView } from 'react-intersection-observer';
+
 import { formatDistanceToNow } from 'date-fns';
 import { 
   Heart, 
@@ -76,53 +78,94 @@ const MediaContent = ({ post, isDark }) => {
 
   const renderVideo = (videoVersion) => {
     if (!videoVersion?.url) return null;
+  
     const [isPlaying, setIsPlaying] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const videoRef = useRef(null);
+    
+    // Set up intersection observer to detect when video is in view
+    const { ref: inViewRef, inView } = useInView({
+      threshold: 0.5, // Trigger when 50% of video is visible
+    });
+  
+    // Merge refs (video and intersection observer)
+    const setRefs = (element) => {
+      videoRef.current = element;
+      inViewRef(element);
+    };
   
     useEffect(() => {
-      if (videoRef.current) {
-        videoRef.current.addEventListener('loadeddata', () => {
-          setIsLoading(false);
-        });
-        
-        // Add playback error handling
-        videoRef.current.addEventListener('error', (e) => {
-          console.error('Video playback error:', e);
-          setIsLoading(false);
-        });
-      }
+      const videoElement = videoRef.current;
+      if (!videoElement) return;
+  
+      // Set up event listeners
+      videoElement.addEventListener('loadeddata', () => {
+        setIsLoading(false);
+      });
+  
+      videoElement.addEventListener('error', (e) => {
+        console.error('Video playback error:', e);
+        setIsLoading(false);
+      });
+  
+      // Cleanup
+      return () => {
+        videoElement.removeEventListener('loadeddata', () => setIsLoading(false));
+        videoElement.removeEventListener('error', () => setIsLoading(false));
+      };
     }, []);
+  
+    // Handle autoplay when video comes into view
+    useEffect(() => {
+      const videoElement = videoRef.current;
+      if (!videoElement) return;
+  
+      if (inView) {
+        // Try to autoplay the video when in view
+        const playPromise = videoElement.play();
+        
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((error) => {
+              // Auto-play was prevented
+              console.warn('Autoplay prevented:', error);
+              setIsPlaying(false);
+            });
+        }
+      } else {
+        // Pause when out of view
+        videoElement.pause();
+        setIsPlaying(false);
+      }
+    }, [inView]);
   
     return (
       <div className="relative">
         {isLoading && (
           <div className={`absolute inset-0 flex items-center justify-center ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}>
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500" />
           </div>
         )}
         <video
-          ref={videoRef}
+          ref={setRefs}
           playsInline
+          muted // Required for autoplay on mobile
           controls
           controlsList="nodownload"
-          preload="metadata"
+          preload="auto" // Changed from metadata to auto for faster loading
           className={`w-full rounded-lg ${isLoading ? 'opacity-0' : 'opacity-100'}`}
           poster={post.image_versions?.[0]?.url ? getProxiedImageUrl(post.image_versions[0].url) : undefined}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
         >
-          {/* Try different video formats */}
           <source
-  src={getProxiedImageUrl(videoVersion.url, true)}
-  type="video/mp4; codecs=avc1.42E01E,mp4a.40.2"
-/>
-          {/* Fallback source */}
-          <source
-            src={getProxiedImageUrl(videoVersion.url)}
-            type="video/quicktime"
+            src={getProxiedImageUrl(videoVersion.url, true)}
+            type="video/mp4; codecs=avc1.42E01E,mp4a.40.2"
           />
-          {/* M3U8 for HLS streaming */}
+          <source src={getProxiedImageUrl(videoVersion.url)} type="video/quicktime" />
           {videoVersion.url.endsWith('.m3u8') && (
             <source
               src={getProxiedImageUrl(videoVersion.url)}
