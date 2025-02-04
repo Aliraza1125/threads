@@ -7,58 +7,45 @@ export async function GET(request) {
     const url = searchParams.get('url');
 
     if (!url) {
-      return NextResponse.json(
-        { error: 'URL parameter is required' }, 
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'URL required' }, { status: 400 });
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Instagram 219.0.0.12.117 Android',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive'
+      }
+    });
     
     if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch video' },
-        { status: response.status }
-      );
+      return NextResponse.json({ error: 'Fetch failed' }, { status: response.status });
     }
 
-    // Get the headers from the original response
-    const contentType = response.headers.get('content-type');
+    const headers = new Headers({
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=31536000',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET'
+    });
+
     const contentRange = response.headers.get('content-range');
     const contentLength = response.headers.get('content-length');
 
-    // Create headers for our response
-    const responseHeaders = new Headers();
-    responseHeaders.set('Content-Type', contentType || 'video/mp4');
-    responseHeaders.set('Accept-Ranges', 'bytes');
-    if (contentRange) {
-      responseHeaders.set('Content-Range', contentRange);
-    }
-    if (contentLength) {
-      responseHeaders.set('Content-Length', contentLength);
-    }
-    responseHeaders.set('Cache-Control', 'public, max-age=31536000');
-    // Add CORS headers if needed
-    responseHeaders.set('Access-Control-Allow-Origin', '*');
-    responseHeaders.set('Access-Control-Allow-Methods', 'GET');
+    if (contentRange) headers.set('Content-Range', contentRange);
+    if (contentLength) headers.set('Content-Length', contentLength);
 
-    // Stream the response
     const blob = await response.blob();
-    return new NextResponse(blob, {
-      headers: responseHeaders,
-      status: response.status,
-    });
+    return new NextResponse(blob, { headers, status: 200 });
 
   } catch (error) {
     console.error('Video proxy error:', error);
-    return NextResponse.json(
-      { error: 'Failed to proxy video' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Proxy failed' }, { status: 500 });
   }
 }
 
-// Configure the API route
 export const config = {
   api: {
     bodyParser: false,

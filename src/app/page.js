@@ -9,7 +9,7 @@ const ThreadsFeed = () => {
   const [error, setError] = useState(null);
   const [isDark, setIsDark] = useState(false);
 
-  useEffect(() => {
+  useEffect(() => {xc
     // Check for saved theme preference
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
