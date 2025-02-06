@@ -10,7 +10,6 @@ const ThreadsFeed = () => {
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    // Check for saved theme preference
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     
@@ -129,12 +128,7 @@ const ThreadsFeed = () => {
 
           <div className="space-y-8">
             {postsData.map((currencyData) => {
-              const namePosts = processThreadItems(currencyData.nameResults);
-              const symbolPosts = processThreadItems(currencyData.symbolResults);
-              const allPosts = [...namePosts, ...symbolPosts];
-              const uniquePosts = Array.from(
-                new Map(allPosts.map(post => [post.id, post])).values()
-              );
+              const posts = processThreadItems(currencyData.results);
 
               return (
                 <div key={currencyData.currency} className="space-y-6">
@@ -142,17 +136,14 @@ const ThreadsFeed = () => {
                     isDark ? 'text-gray-200' : 'text-gray-800'
                   }`}>
                     <span>{currencyData.currency}</span>
-                    <span className={`ml-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      ${currencyData.symbol}
-                    </span>
                     <span className={`ml-2 text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                      ({uniquePosts.length} posts)
+                      ({posts.length} posts)
                     </span>
                   </h2>
                   <div className={`space-y-4 rounded-t-3xl ${
                     isDark ? 'bg-gray-800 shadow-dark' : 'bg-white shadow-lg'
                   }`}>
-                    {uniquePosts.map((post) => (
+                    {posts.map((post) => (
                       <ThreadPost 
                         key={post.id} 
                         post={post}

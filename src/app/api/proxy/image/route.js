@@ -3,7 +3,6 @@ import axios from 'axios';
 
 export async function GET(request) {
   try {
-    // Get the image URL from the query parameters
     const { searchParams } = new URL(request.url);
     const imageUrl = searchParams.get('url');
 
@@ -11,34 +10,33 @@ export async function GET(request) {
       return new Response('Image URL is required', { status: 400 });
     }
 
-    // Decode the URL if it's encoded
     const decodedUrl = decodeURIComponent(imageUrl);
 
-    // Fetch the image
     const response = await axios.get(decodedUrl, {
       responseType: 'arraybuffer',
       headers: {
-        // Add Instagram-specific headers
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-        'Referer': 'https://www.instagram.com/',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Instagram 219.0.0.12.117 Android',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Cookie': '', // Empty cookie to avoid Instagram blocking
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Dest': 'image',
+        'Accept-Encoding': 'gzip, deflate, br',
       },
+      maxRedirects: 5,
+      validateStatus: (status) => status < 400
     });
 
-    // Get the content type from the response
-    const contentType = response.headers['content-type'];
-
-    // Return the image with proper headers
     return new Response(response.data, {
       headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=31536000',
+        'Content-Type': response.headers['content-type'] || 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
         'Access-Control-Allow-Origin': '*',
+        'Vary': 'Origin',
       },
     });
   } catch (error) {
-    console.error('Error proxying image:', error);
-    return new Response('Error fetching image', { status: 500 });
+    console.error('Proxy error:', error);
+    return Response.json({ error: 'Failed to fetch image' }, { status: 500 });
   }
 }
