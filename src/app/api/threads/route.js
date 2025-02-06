@@ -59,36 +59,25 @@ async function checkApiLimit() {
 async function fetchThreadsPosts(query, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      console.log(`Fetching posts for query: ${query}, Attempt: ${attempt}`);
-      
-      if (!RAPIDAPI_KEY) {
-        throw new Error('RapidAPI Key is not configured');
-      }
-
       const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
         params: { query },
         headers: {
           'X-RapidAPI-Key': RAPIDAPI_KEY,
           'X-RapidAPI-Host': RAPIDAPI_HOST
         },
-        timeout: 10000
+        timeout: 30000 // Increased timeout to 30 seconds
       });
 
       return {
         data: response.data,
-        pagination: {
-          has_next_page: response.data?.data?.searchResults?.page_info?.has_next_page || false,
-          end_cursor: response.data?.data?.searchResults?.page_info?.end_cursor || null
-        }
+        pagination: response.data?.data?.searchResults?.page_info || {}
       };
     } catch (error) {
-      console.error(`Error fetching posts for ${query} (Attempt ${attempt}):`, 
-        error.response?.data || error.message);
-      
-      if (attempt === retries) {
-        throw error;
+      if (error.code === 'ECONNABORTED') {
+        console.error('Request timeout for query:', query);
       }
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (attempt === retries) throw error;
+      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
     }
   }
 }
