@@ -24,13 +24,14 @@ async function getSampleData() {
     return null;
   }
 }
-
 async function getLatestSavedData() {
+  if (process.env.VERCEL) {
+    // On Vercel, try to fetch from API directly
+    return fetchAndSaveData();
+  }
+
   try {
-    const filePath = process.env.VERCEL
-      ? path.join(process.cwd(), 'public', 'data', 'latest-threads-posts.json')
-      : path.join(process.cwd(), 'data', 'latest-threads-posts.json');
-    
+    const filePath = path.join(process.cwd(), 'data', 'latest-threads-posts.json');
     const fileContent = await fs.readFile(filePath, 'utf8');
     return JSON.parse(fileContent);
   } catch (error) {
@@ -153,67 +154,40 @@ async function fetchAndSaveData() {
 export async function GET() {
   try {
     console.log('Starting fetch-threads-posts request...');
-
+    
     const { hasLimit, error: limitError } = await checkApiLimit();
     
     if (!hasLimit) {
-      // If API limit not reached, fetch new data and save it
       console.log('Fetching fresh data from API...');
       try {
         const freshData = await fetchAndSaveData();
-        // Read the saved data back from file to ensure consistency
-        const savedData = await getLatestSavedData();
-        
-        if (savedData) {
-          return Response.json({
-            success: true,
-            message: 'Fresh data fetched, saved, and retrieved successfully',
-            data: savedData,
-            source: 'api_saved'
-          });
-        }
+        return Response.json({
+          success: true,
+          message: 'Fresh data fetched successfully',
+          data: freshData,
+          source: 'api'
+        });
       } catch (fetchError) {
-        console.error('Error fetching/saving fresh data:', fetchError);
-        // Continue to fallback options
+        console.error('Error fetching fresh data:', fetchError);
       }
     }
 
-    // Try to get previously saved data
-    console.log('Attempting to read latest saved data...');
-    const savedData = await getLatestSavedData();
-    if (savedData) {
+    // Try to get data from API directly as fallback
+    try {
+      const data = await fetchAndSaveData();
       return Response.json({
         success: true,
-        message: 'Retrieved from saved data',
-        data: savedData,
-        source: 'saved',
-        limitError: hasLimit ? limitError : null
+        message: 'Data fetched from API',
+        data: data,
+        source: 'api_fallback'
       });
-    }
-
-    // If no saved data, try sample data
-    console.log('Attempting to read sample data...');
-    const sampleData = await getSampleData();
-    if (sampleData) {
+    } catch (error) {
       return Response.json({
-        success: true,
-        message: 'Retrieved from sample data',
-        data: sampleData,
-        source: 'sample',
-        limitError: hasLimit ? limitError : null
-      });
+        success: false,
+        error: 'Failed to fetch data',
+        details: error.message
+      }, { status: 500 });
     }
-
-    // If all attempts fail
-    return Response.json({
-      success: false,
-      error: 'No data available from any source',
-      details: {
-        apiLimit: hasLimit,
-        limitError: limitError
-      }
-    }, { status: 500 });
-
   } catch (error) {
     console.error('Error in fetch-threads-posts route:', error);
     return Response.json({

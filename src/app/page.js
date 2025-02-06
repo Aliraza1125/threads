@@ -34,22 +34,31 @@ const ThreadsFeed = () => {
   useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const response = await fetch('/api/threads');
+        const response = await fetch('/api/threads', {
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
-
+  
         if (data.success && data.data?.results) {
           setPostsData(data.data.results);
         } else {
-          setError('No data available');
+          throw new Error(data.error || 'No data available');
         }
       } catch (error) {
-        console.error('Error:', error);
-        setError('Failed to fetch posts');
+        console.error('Error fetching posts:', error);
+        setError(`Failed to fetch posts: ${error.message}`);
       } finally {
         setLoading(false);
       }
     };
-
+  
     fetchPosts();
   }, []);
 
