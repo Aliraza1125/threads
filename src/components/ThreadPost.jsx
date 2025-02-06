@@ -14,6 +14,7 @@ import {
   VolumeX
 } from 'lucide-react';
 
+// Utility function for proxying URLs
 const getProxiedUrl = (originalUrl, isVideo = false) => {
   if (!originalUrl) return '';
   const encodedUrl = encodeURIComponent(originalUrl);
@@ -22,6 +23,7 @@ const getProxiedUrl = (originalUrl, isVideo = false) => {
     : `/api/proxy/image?url=${encodedUrl}`;
 };
 
+// Currency configuration
 const CURRENCY_CONFIG = {
   Bitcoin: {
     name: "Bitcoin",
@@ -42,6 +44,8 @@ const CURRENCY_CONFIG = {
     color: "bg-yellow-500"
   }
 };
+
+// Video Player Component
 const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -169,7 +173,7 @@ const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
         poster={posterUrl ? getProxiedUrl(posterUrl) : undefined}
         preload="metadata"
       >
-        <source src={getProxiedUrl(videoUrl, true)} type="video/mp4" />
+        <source src={videoUrl} type="video/mp4" />
       </video>
 
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
@@ -223,7 +227,6 @@ const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
     </div>
   );
 };
-
 // Image Component
 const ImageComponent = ({ imageVersion, alt, isDark }) => {
   const [imageError, setImageError] = useState(false);
@@ -257,7 +260,7 @@ const ImageComponent = ({ imageVersion, alt, isDark }) => {
 // Media Content Component
 const MediaContent = ({ post, isDark }) => {
   if (!post) return null;
-
+console.log("post",post)
   const renderCarouselGrid = (carouselMedia) => {
     if (!carouselMedia?.length) return null;
 
