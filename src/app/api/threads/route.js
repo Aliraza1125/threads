@@ -11,19 +11,13 @@ const CURRENCIES = [
   { name: "Dogecoin", symbol: "DOGE" }
 ];
 
-async function getSampleData() {
-  try {
-    const filePath = process.env.VERCEL
-      ? path.join(process.cwd(), 'public', 'data', 'sample-threads-posts.json')
-      : path.join(process.cwd(), 'data', 'sample-threads-posts.json');
-    
-    const fileContent = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(fileContent);
-  } catch (error) {
-    console.error('Error reading sample data:', error);
-    return null;
-  }
-}
+// Cache for API responses
+let responseCache = {
+  data: null,
+  timestamp: null
+};
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 async function getLatestSavedData() {
   try {
@@ -39,175 +33,120 @@ async function getLatestSavedData() {
   }
 }
 
-async function checkApiLimit() {
+async function fetchThreadsPosts(query) {
   try {
     const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
-      params: { query: 'test' },
+      params: { query },
       headers: {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': RAPIDAPI_HOST
       },
-      timeout: 5000
+      timeout: 10000 // Reduced timeout to 10 seconds
     });
-    return { hasLimit: false };
+
+    return {
+      data: response.data,
+      pagination: response.data?.data?.searchResults?.page_info || {}
+    };
   } catch (error) {
-    console.error('API limit check error:', error.message);
-    return { hasLimit: true, error: error.message };
-  }
-}
-
-async function fetchThreadsPosts(query, retries = 2) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
-        params: { query },
-        headers: {
-          'X-RapidAPI-Key': RAPIDAPI_KEY,
-          'X-RapidAPI-Host': RAPIDAPI_HOST
-        },
-        timeout: 30000 // Increased timeout to 30 seconds
-      });
-
-      return {
-        data: response.data,
-        pagination: response.data?.data?.searchResults?.page_info || {}
-      };
-    } catch (error) {
-      if (error.code === 'ECONNABORTED') {
-        console.error('Request timeout for query:', query);
-      }
-      if (attempt === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-    }
-  }
-}
-
-async function saveToJsonFile(data) {
-  try {
-    if (process.env.VERCEL) return null;
-
-    const dataPath = path.join(process.cwd(), 'data', 'latest-threads-posts.json');
-    const dataDir = path.dirname(dataPath);
-    
-    try {
-      await fs.mkdir(dataDir, { recursive: true });
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-    }
-
-    await fs.writeFile(dataPath, JSON.stringify(data, null, 2));
-    console.log(`Saved results to ${dataPath}`);
-    return dataPath;
-  } catch (error) {
-    console.error('Error saving to JSON file:', error);
-    return null;
+    console.error(`Error fetching data for ${query}:`, error.message);
+    return { data: null, pagination: {} };
   }
 }
 
 async function fetchAndSaveData() {
-  const allResults = [];
+  // Process currencies in parallel with Promise.all
+  const allResults = await Promise.all(
+    CURRENCIES.map(async (currency) => {
+      const [nameResults, symbolResults] = await Promise.all([
+        fetchThreadsPosts(currency.name),
+        fetchThreadsPosts(currency.symbol)
+      ]);
 
-  for (let i = 0; i < CURRENCIES.length; i += 2) {
-    const currenciesToProcess = CURRENCIES.slice(i, i + 2);
-    const currencyResults = await Promise.all(
-      currenciesToProcess.map(async (currency) => {
-        const nameResults = await fetchThreadsPosts(currency.name);
-        const symbolResults = await fetchThreadsPosts(currency.symbol);
-
-        return {
-          currency: currency.name,
-          symbol: currency.symbol,
-          nameResults: nameResults.data,
-          symbolResults: symbolResults.data,
-          pagination: {
-            name: nameResults.pagination,
-            symbol: symbolResults.pagination
-          }
-        };
-      })
-    );
-
-    allResults.push(...currencyResults);
-  }
+      return {
+        currency: currency.name,
+        symbol: currency.symbol,
+        nameResults: nameResults.data,
+        symbolResults: symbolResults.data,
+        pagination: {
+          name: nameResults.pagination,
+          symbol: symbolResults.pagination
+        }
+      };
+    })
+  );
 
   const dataToSave = {
     results: allResults,
     timestamp: new Date().toISOString()
   };
 
-  await saveToJsonFile(dataToSave);
+  // Only save to file if not on Vercel
+  if (!process.env.VERCEL) {
+    try {
+      const dataPath = path.join(process.cwd(), 'data', 'latest-threads-posts.json');
+      await fs.mkdir(path.dirname(dataPath), { recursive: true });
+      await fs.writeFile(dataPath, JSON.stringify(dataToSave, null, 2));
+    } catch (error) {
+      console.error('Error saving to file:', error);
+    }
+  }
+
   return dataToSave;
 }
 
 export async function GET() {
   try {
-    console.log('Starting fetch-threads-posts request...');
+    console.log('Starting threads-posts request...');
 
-    const { hasLimit, error: limitError } = await checkApiLimit();
-    
-    if (!hasLimit) {
-      // If API limit not reached, fetch new data and save it
-      console.log('Fetching fresh data from API...');
-      try {
-        const freshData = await fetchAndSaveData();
-        // Read the saved data back from file to ensure consistency
-        const savedData = await getLatestSavedData();
-        
-        if (savedData) {
-          return Response.json({
-            success: true,
-            message: 'Fresh data fetched, saved, and retrieved successfully',
-            data: savedData,
-            source: 'api_saved'
-          });
-        }
-      } catch (fetchError) {
-        console.error('Error fetching/saving fresh data:', fetchError);
-        // Continue to fallback options
+    // Check cache first
+    if (responseCache.data && responseCache.timestamp) {
+      const cacheAge = Date.now() - responseCache.timestamp;
+      if (cacheAge < CACHE_DURATION) {
+        console.log('Returning cached data');
+        return Response.json({
+          success: true,
+          message: 'Retrieved from cache',
+          data: responseCache.data,
+          source: 'cache'
+        });
       }
     }
 
-    // Try to get previously saved data
-    console.log('Attempting to read latest saved data...');
+    // Try to fetch new data
+    console.log('Fetching fresh data...');
+    const freshData = await fetchAndSaveData();
+    
+    // Update cache
+    responseCache = {
+      data: freshData,
+      timestamp: Date.now()
+    };
+
+    return Response.json({
+      success: true,
+      message: 'Fresh data fetched successfully',
+      data: freshData,
+      source: 'api'
+    });
+
+  } catch (error) {
+    console.error('Error in threads-posts route:', error);
+    
+    // Try to get saved data as fallback
     const savedData = await getLatestSavedData();
     if (savedData) {
       return Response.json({
         success: true,
-        message: 'Retrieved from saved data',
+        message: 'Retrieved from saved data (fallback)',
         data: savedData,
-        source: 'saved',
-        limitError: hasLimit ? limitError : null
+        source: 'saved'
       });
     }
 
-    // If no saved data, try sample data
-    console.log('Attempting to read sample data...');
-    const sampleData = await getSampleData();
-    if (sampleData) {
-      return Response.json({
-        success: true,
-        message: 'Retrieved from sample data',
-        data: sampleData,
-        source: 'sample',
-        limitError: hasLimit ? limitError : null
-      });
-    }
-
-    // If all attempts fail
     return Response.json({
       success: false,
-      error: 'No data available from any source',
-      details: {
-        apiLimit: hasLimit,
-        limitError: limitError
-      }
-    }, { status: 500 });
-
-  } catch (error) {
-    console.error('Error in fetch-threads-posts route:', error);
-    return Response.json({
-      success: false,
-      error: 'Unexpected error occurred',
+      error: 'Unable to fetch data from any source',
       details: error.message
     }, { status: 500 });
   }
