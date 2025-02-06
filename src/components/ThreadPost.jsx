@@ -14,7 +14,6 @@ import {
   VolumeX
 } from 'lucide-react';
 
-// Utility function for proxying URLs
 const getProxiedUrl = (originalUrl, isVideo = false) => {
   if (!originalUrl) return '';
   const encodedUrl = encodeURIComponent(originalUrl);
@@ -23,7 +22,6 @@ const getProxiedUrl = (originalUrl, isVideo = false) => {
     : `/api/proxy/image?url=${encodedUrl}`;
 };
 
-// Currency configuration
 const CURRENCY_CONFIG = {
   Bitcoin: {
     name: "Bitcoin",
@@ -44,50 +42,58 @@ const CURRENCY_CONFIG = {
     color: "bg-yellow-500"
   }
 };
-
-// Video Player Component
 const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showThumbnail, setShowThumbnail] = useState(true);
-  const [showControls, setShowControls] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const videoRef = useRef(null);
-  
-  const { ref: inViewRef, inView } = useInView({
-    threshold: 0.5,
-  });
-
-  const setRefs = (element) => {
-    videoRef.current = element;
-    inViewRef(element);
-  };
+  const containerRef = useRef(null);
 
   useEffect(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
-    if (inView && isPlaying && !showThumbnail) {
-      const playPromise = videoElement.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((error) => {
-          console.warn('Autoplay prevented:', error);
-          setIsPlaying(false);
-        });
-      }
-    } else {
-      videoElement.pause();
-      setIsPlaying(false);
-    }
-  }, [inView, isPlaying, showThumbnail]);
+    const handleLoadedData = () => {
+      setIsLoading(false);
+      setDuration(videoElement.duration);
+    };
 
-  const togglePlay = () => {
-    if (videoRef.current) {
+    const handleTimeUpdate = () => {
+      setCurrentTime(videoElement.currentTime);
+    };
+
+    videoElement.addEventListener('loadeddata', handleLoadedData);
+    videoElement.addEventListener('timeupdate', handleTimeUpdate);
+    videoElement.addEventListener('waiting', () => setIsLoading(true));
+    videoElement.addEventListener('playing', () => setIsLoading(false));
+
+    return () => {
+      videoElement.removeEventListener('loadeddata', handleLoadedData);
+      videoElement.removeEventListener('timeupdate', handleTimeUpdate);
+      videoElement.removeEventListener('waiting', () => setIsLoading(true));
+      videoElement.removeEventListener('playing', () => setIsLoading(false));
+    };
+  }, []);
+
+  const togglePlay = async () => {
+    if (!videoRef.current) return;
+
+    try {
       if (isPlaying) {
-        videoRef.current.pause();
+        await videoRef.current.pause();
+        setIsPlaying(false);
       } else {
-        videoRef.current.play();
+        setShowThumbnail(false);
+        await videoRef.current.play();
+        setIsPlaying(true);
       }
-      setIsPlaying(!isPlaying);
+    } catch (error) {
+      console.error('Error toggling play state:', error);
+      setIsPlaying(false);
     }
   };
 
@@ -98,33 +104,49 @@ const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
     }
   };
 
-  const getProxiedUrl = (originalUrl, isVideo = false) => {
-    if (!originalUrl) return '';
-    const encodedUrl = encodeURIComponent(originalUrl);
-    return isVideo 
-      ? `/api/proxy/video?url=${encodedUrl}`
-      : `/api/proxy/image?url=${encodedUrl}`;
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  const handleProgressClick = (e) => {
+    if (!videoRef.current) return;
+    
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - bounds.left;
+    const percentage = x / bounds.width;
+    const newTime = percentage * duration;
+    
+    videoRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const formatTime = (timeInSeconds) => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
   return (
     <div 
-      className="relative group"
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+      ref={containerRef}
+      className="relative w-full bg-black rounded-lg overflow-hidden"
     >
       {showThumbnail && posterUrl && (
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 z-20">
           <img 
             src={getProxiedUrl(posterUrl)} 
             alt="Video thumbnail"
-            className="w-full h-full object-cover rounded-lg"
+            className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
             <button
-              onClick={() => {
-                setShowThumbnail(false);
-                togglePlay();
-              }}
+              onClick={togglePlay}
               className="p-4 rounded-full bg-black bg-opacity-50 text-white hover:bg-opacity-70 transition-colors"
             >
               <Play size={32} />
@@ -132,40 +154,76 @@ const VideoPlayer = ({ videoUrl, posterUrl, isDark }) => {
           </div>
         </div>
       )}
-      
+
+      {isLoading && !showThumbnail && (
+        <div className="absolute inset-0 z-10 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
       <video
-        ref={setRefs}
-        className="w-full rounded-lg"
+        ref={videoRef}
+        className="w-full"
         playsInline
-        loop
         muted={isMuted}
         poster={posterUrl ? getProxiedUrl(posterUrl) : undefined}
         preload="metadata"
       >
         <source src={getProxiedUrl(videoUrl, true)} type="video/mp4" />
-        Your browser does not support video playback.
       </video>
 
-      <div className={`absolute inset-0 flex items-center justify-center ${showControls ? 'bg-black bg-opacity-20' : ''} rounded-lg transition-opacity duration-200 ${showControls ? 'opacity-100' : 'opacity-0'} group-hover:opacity-100`}>
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
+        <div 
+          className="w-full h-1 bg-gray-600 rounded cursor-pointer mb-2"
+          onClick={handleProgressClick}
+        >
+          <div 
+            className="h-full bg-white rounded"
+            style={{ width: `${(currentTime / duration) * 100}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={togglePlay}
+              className="text-white hover:text-gray-300 transition-colors"
+            >
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+            
+            <button
+              onClick={toggleMute}
+              className="text-white hover:text-gray-300 transition-colors"
+            >
+              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
+            
+            <span className="text-white text-sm">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+          </div>
+
           <button
-            onClick={togglePlay}
-            className="p-2 rounded-full bg-black bg-opacity-50 text-white hover:bg-opacity-70 transition-colors"
+            onClick={toggleFullscreen}
+            className="text-white hover:text-gray-300 transition-colors"
           >
-            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-          </button>
-          
-          <button
-            onClick={toggleMute}
-            className="p-2 rounded-full bg-black bg-opacity-50 text-white hover:bg-opacity-70 transition-colors"
-          >
-            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            {isFullscreen ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9h6v6H9z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0 0l-5-5m-7 11h4m-4 0v4m0 0l5-5m5 5v-4m0 4h-4m0 0l5-5" />
+              </svg>
+            )}
           </button>
         </div>
       </div>
     </div>
   );
 };
+
 // Image Component
 const ImageComponent = ({ imageVersion, alt, isDark }) => {
   const [imageError, setImageError] = useState(false);
@@ -199,7 +257,7 @@ const ImageComponent = ({ imageVersion, alt, isDark }) => {
 // Media Content Component
 const MediaContent = ({ post, isDark }) => {
   if (!post) return null;
-console.log("post",post)
+
   const renderCarouselGrid = (carouselMedia) => {
     if (!carouselMedia?.length) return null;
 
@@ -502,9 +560,9 @@ const ThreadPost = ({ post, isDark = false }) => {
                   </div>
                 )}
                 <img 
-                  src="/threads-logo.png"
+                  src="data:image/png;base64,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"
                   alt="Threads" 
-                  className={`w-6 h-6 ${isDark ? 'filter invert' : ''}`}
+                  className={`w-5 h-5 ${isDark ? 'filter invert' : ''}`}
                 />
               </div>
             </div>
