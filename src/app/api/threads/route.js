@@ -57,41 +57,27 @@ async function checkApiLimit() {
   }
 }
 
-async function fetchThreadsPosts(query, retries = 2) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`Fetching posts for query: ${query}, Attempt: ${attempt}`);
-      
-      if (!RAPIDAPI_KEY) {
-        throw new Error('RapidAPI Key is not configured');
-      }
-
-      const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
-        params: { query },
-        headers: {
-          'X-RapidAPI-Key': RAPIDAPI_KEY,
-          'X-RapidAPI-Host': RAPIDAPI_HOST
-        },
-        timeout: 10000
-      });
-
-      return {
-        data: response.data,
-        pagination: {
-          has_next_page: response.data?.data?.searchResults?.page_info?.has_next_page || false,
-          end_cursor: response.data?.data?.searchResults?.page_info?.end_cursor || null
-        }
-      };
-    } catch (error) {
-      console.error(`Error fetching posts for ${query} (Attempt ${attempt}):`, 
-        error.response?.data || error.message);
-      
-      if (attempt === retries) {
-        throw error;
-      }
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
+async function fetchThreadsPosts(query) {
+  if (!RAPIDAPI_KEY) {
+    throw new Error('RapidAPI Key not configured');
   }
+
+  const response = await axios.get(`https://${RAPIDAPI_HOST}/api/search/recent`, {
+    params: { query },
+    headers: {
+      'X-RapidAPI-Key': RAPIDAPI_KEY,
+      'X-RapidAPI-Host': RAPIDAPI_HOST
+    },
+    timeout: 5000 // Reduced timeout
+  });
+
+  return {
+    data: response.data,
+    pagination: {
+      has_next_page: response.data?.data?.searchResults?.page_info?.has_next_page || false,
+      end_cursor: response.data?.data?.searchResults?.page_info?.end_cursor || null
+    }
+  };
 }
 
 async function saveToJsonFile(data) {
@@ -116,84 +102,52 @@ async function saveToJsonFile(data) {
   }
 }
 
+// Optimize fetchAndSaveData function
 async function fetchAndSaveData() {
-  const allResults = [];
-
-  for (let i = 0; i < CURRENCIES.length; i += 2) {
-    const currenciesToProcess = CURRENCIES.slice(i, i + 2);
-    const currencyResults = await Promise.all(
-      currenciesToProcess.map(async (currency) => {
-        const nameResults = await fetchThreadsPosts(currency.name);
-        const symbolResults = await fetchThreadsPosts(currency.symbol);
-
-        return {
-          currency: currency.name,
-          symbol: currency.symbol,
-          nameResults: nameResults.data,
-          symbolResults: symbolResults.data,
-          pagination: {
-            name: nameResults.pagination,
-            symbol: symbolResults.pagination
-          }
-        };
+  try {
+    // Fetch only one result per currency to reduce load
+    const results = await Promise.all(
+      CURRENCIES.map(async (currency) => {
+        try {
+          const symbolResults = await fetchThreadsPosts(currency.symbol);
+          return {
+            currency: currency.name,
+            symbol: currency.symbol,
+            symbolResults: symbolResults.data,
+            pagination: {
+              symbol: symbolResults.pagination
+            }
+          };
+        } catch (error) {
+          console.error(`Error fetching ${currency.symbol}:`, error);
+          return null;
+        }
       })
     );
 
-    allResults.push(...currencyResults);
+    const validResults = results.filter(Boolean);
+    
+    return {
+      results: validResults,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    throw new Error(`Data fetch failed: ${error.message}`);
   }
-
-  const dataToSave = {
-    results: allResults,
-    timestamp: new Date().toISOString()
-  };
-
-  await saveToJsonFile(dataToSave);
-  return dataToSave;
 }
+
 
 export async function GET() {
   try {
-    console.log('Starting fetch-threads-posts request...');
-    
-    const { hasLimit, error: limitError } = await checkApiLimit();
-    
-    if (!hasLimit) {
-      console.log('Fetching fresh data from API...');
-      try {
-        const freshData = await fetchAndSaveData();
-        return Response.json({
-          success: true,
-          message: 'Fresh data fetched successfully',
-          data: freshData,
-          source: 'api'
-        });
-      } catch (fetchError) {
-        console.error('Error fetching fresh data:', fetchError);
-      }
-    }
-
-    // Try to get data from API directly as fallback
-    try {
-      const data = await fetchAndSaveData();
-      return Response.json({
-        success: true,
-        message: 'Data fetched from API',
-        data: data,
-        source: 'api_fallback'
-      });
-    } catch (error) {
-      return Response.json({
-        success: false,
-        error: 'Failed to fetch data',
-        details: error.message
-      }, { status: 500 });
-    }
+    const data = await fetchAndSaveData();
+    return Response.json({
+      success: true,
+      data: data
+    });
   } catch (error) {
-    console.error('Error in fetch-threads-posts route:', error);
     return Response.json({
       success: false,
-      error: 'Unexpected error occurred',
-      details: error.message
+      error: error.message
     }, { status: 500 });
   }
 }
