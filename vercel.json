@@ -3,6 +3,5 @@
     "app/api/threads/route.js": {
       "maxDuration": 60
     }
-  },
-  "regions": ["sin1"]
+  }
 }
