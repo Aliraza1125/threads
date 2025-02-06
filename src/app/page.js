@@ -34,17 +34,17 @@ const ThreadsFeed = () => {
   useEffect(() => {
     const fetchPosts = async () => {
       try {
-        const response = await fetch('/api/threads');
+        const response = await fetch('/api/threads', {
+          timeout: 30000 // 30 second timeout
+        });
+        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
         const data = await response.json();
-
         if (data.success && data.data?.results) {
           setPostsData(data.data.results);
-        } else {
-          setError('No data available');
         }
       } catch (error) {
         console.error('Error:', error);
-        setError('Failed to fetch posts');
+        setError('Failed to fetch posts - please try again later');
       } finally {
         setLoading(false);
       }
