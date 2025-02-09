@@ -481,34 +481,34 @@ const ThreadPost = ({ post, isDark = false }) => {
     post.text_post_app_info?.repost_count || 0
   );
 
-  const handleLike = () => {
-    setIsLiked(!isLiked);
-    setLocalLikeCount(prev => isLiked ? prev - 1 : prev + 1);
-  };
+  // const handleLike = () => {
+  //   setIsLiked(!isLiked);
+  //   setLocalLikeCount(prev => isLiked ? prev - 1 : prev + 1);
+  // };
 
-  const handleRepost = () => {
-    setIsReposted(!isReposted);
-    setLocalRepostCount(prev => isReposted ? prev - 1 : prev + 1);
-  };
+  // const handleRepost = () => {
+  //   setIsReposted(!isReposted);
+  //   setLocalRepostCount(prev => isReposted ? prev - 1 : prev + 1);
+  // };
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `Post by ${post.user?.username || 'Unknown User'}`,
-          text: post.content || '',
-          url: window.location.href,
-        });
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error('Error sharing:', err);
-          setIsAlertOpen(true);
-        }
-      }
-    } else {
-      setIsAlertOpen(true);
-    }
-  };
+  // const handleShare = async () => {
+  //   if (navigator.share) {
+  //     try {
+  //       await navigator.share({
+  //         title: `Post by ${post.user?.username || 'Unknown User'}`,
+  //         text: post.content || '',
+  //         url: window.location.href,
+  //       });
+  //     } catch (err) {
+  //       if (err.name !== 'AbortError') {
+  //         console.error('Error sharing:', err);
+  //         setIsAlertOpen(true);
+  //       }
+  //     }
+  //   } else {
+  //     setIsAlertOpen(true);
+  //   }
+  // };
 
   if (!post || !post.user) {
     return null;
@@ -540,7 +540,6 @@ const ThreadPost = ({ post, isDark = false }) => {
                       </svg>
                     </span>
                   )}
-                  <span className={isDark ? 'text-gray-500' : 'text-gray-500'}>·</span>
                   <span className={isDark ? 'text-gray-500' : 'text-gray-500'}>
                     {formatTimeAgo(post.taken_at)}
                   </span>
@@ -589,7 +588,6 @@ const ThreadPost = ({ post, isDark = false }) => {
 
             <div className="flex items-center space-x-4 mt-3">
               <button 
-                onClick={handleLike}
                 className={`p-2 -ml-2 rounded-full transition-colors group ${
                   isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
                 }`}
@@ -616,7 +614,6 @@ const ThreadPost = ({ post, isDark = false }) => {
               </button>
 
               <button 
-                onClick={handleRepost}
                 className={`p-2 rounded-full transition-colors group ${
                   isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
                 }`}
@@ -632,7 +629,6 @@ const ThreadPost = ({ post, isDark = false }) => {
               </button>
 
               <button 
-                onClick={handleShare}
                 className={`p-2 rounded-full transition-colors group ${
                   isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50'
                 }`}
